@@ -1,5 +1,39 @@
 spring:
   application:
     name: payguard-reconciliation-service
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5437/payguard_reconciliation}
+    username: ${SPRING_DATASOURCE_USERNAME:payguard}
+    password: ${SPRING_DATASOURCE_PASSWORD:payguard_secret}
+  jpa:
+    open-in-view: false
+  flyway:
+    enabled: true
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: reconciliation-service
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${PAYGUARD_JWKS_URI:http://localhost:8086/.well-known/jwks.json}
+
 server:
   port: 8085
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+
+payguard:
+  stripe:
+    api-key: ${STRIPE_API_KEY:}
+  reconciliation:
+    daily-cron: ${PAYGUARD_RECONCILIATION_CRON:0 30 2 * * *}
+    amount-tolerance-minor: ${PAYGUARD_RECONCILIATION_AMOUNT_TOLERANCE_MINOR:1}
