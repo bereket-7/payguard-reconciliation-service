@@ -43,12 +43,9 @@ public class KafkaConfig {
     ProducerFactory<String, SpecificRecord> avroProducerFactory(
             @Value("${spring.kafka.bootstrap-servers:localhost:9092}") String bootstrapServers,
             @Value("${spring.kafka.properties.schema.registry.url:http://localhost:8081}") String schemaRegistryUrl) {
-        Map<String, Object> config = new HashMap<>();
-        config.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        config.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        Map<String, Object> config = baseProducerConfig(bootstrapServers);
         config.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, KafkaAvroSerializer.class);
         config.put("schema.registry.url", schemaRegistryUrl);
-        config.put(ProducerConfig.ACKS_CONFIG, "all");
         return new DefaultKafkaProducerFactory<>(config);
     }
 
@@ -56,6 +53,34 @@ public class KafkaConfig {
     KafkaTemplate<String, SpecificRecord> avroKafkaTemplate(
             ProducerFactory<String, SpecificRecord> avroProducerFactory) {
         return new KafkaTemplate<>(avroProducerFactory);
+    }
+
+    /**
+     * Plain-String producer for dead-lettered outbox payloads.
+     *
+     * <p>Separate from the Avro template on purpose: an entry usually reaches the DLQ precisely
+     * because its payload could not be converted into an Avro record, so the Avro serializer could
+     * not carry it. The DLQ keeps the original JSON, which is also what a replay needs.
+     */
+    @Bean
+    ProducerFactory<String, String> dlqProducerFactory(
+            @Value("${spring.kafka.bootstrap-servers:localhost:9092}") String bootstrapServers) {
+        Map<String, Object> config = baseProducerConfig(bootstrapServers);
+        config.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        return new DefaultKafkaProducerFactory<>(config);
+    }
+
+    @Bean
+    KafkaTemplate<String, String> dlqKafkaTemplate(ProducerFactory<String, String> dlqProducerFactory) {
+        return new KafkaTemplate<>(dlqProducerFactory);
+    }
+
+    private Map<String, Object> baseProducerConfig(String bootstrapServers) {
+        Map<String, Object> config = new HashMap<>();
+        config.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        config.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        config.put(ProducerConfig.ACKS_CONFIG, "all");
+        return config;
     }
 
     @Bean
