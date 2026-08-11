@@ -29,11 +29,30 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
 
 payguard:
+  internal:
+    service-token: ${PAYGUARD_INTERNAL_SERVICE_TOKEN:}
+  outbox:
+    poll-interval-ms: ${PAYGUARD_OUTBOX_POLL_INTERVAL_MS:1000}
+    batch-size: ${PAYGUARD_OUTBOX_BATCH_SIZE:50}
+    # 8 attempts of 1s doubling backoff spans roughly four minutes before dead-lettering.
+    max-attempts: ${PAYGUARD_OUTBOX_MAX_ATTEMPTS:8}
+    base-backoff-ms: ${PAYGUARD_OUTBOX_BASE_BACKOFF_MS:1000}
+    # Bounds the relay's scheduled thread; without it a wedged broker blocks the poll forever.
+    send-timeout-ms: ${PAYGUARD_OUTBOX_SEND_TIMEOUT_MS:10000}
   stripe:
     api-key: ${STRIPE_API_KEY:}
   reconciliation:
     daily-cron: ${PAYGUARD_RECONCILIATION_CRON:0 30 2 * * *}
     amount-tolerance-minor: ${PAYGUARD_RECONCILIATION_AMOUNT_TOLERANCE_MINOR:1}
+    # Settlement dates follow the Stripe account timezone, not the pod's.
+    settlement-zone: ${PAYGUARD_RECONCILIATION_SETTLEMENT_ZONE:UTC}
+    page-size: ${PAYGUARD_RECONCILIATION_PAGE_SIZE:500}
+    lock-timeout-seconds: ${PAYGUARD_RECONCILIATION_LOCK_TIMEOUT_SECONDS:3600}
