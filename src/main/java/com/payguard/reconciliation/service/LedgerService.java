@@ -7,11 +7,15 @@ import com.payguard.reconciliation.domain.ProcessedEvent;
 import com.payguard.reconciliation.repository.ExpectedPaymentRepository;
 import com.payguard.reconciliation.repository.ProcessedEventRepository;
 import java.time.Instant;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class LedgerService {
+
+    private static final Logger log = LoggerFactory.getLogger(LedgerService.class);
 
     private final ExpectedPaymentRepository expectedPayments;
     private final ProcessedEventRepository processedEvents;
@@ -60,17 +64,47 @@ public class LedgerService {
         expectedPayments.save(payment);
     }
 
+    /**
+     * Applies {@code payment.completed} to the ledger.
+     *
+     * <p>If {@code payment.created} has not arrived yet (Kafka gives no cross-topic ordering
+     * guarantee), a placeholder is created and flagged for repair rather than fabricating a
+     * zero-amount USD row. A fabricated amount would silently reconcile as an
+     * {@code AMOUNT_MISMATCH} against the real settlement forever.
+     */
     private void upsertCompleted(JsonNode node) {
         String transactionId = text(node, "transaction_id");
-        ExpectedPayment payment = expectedPayments.findByTransactionId(transactionId).orElseGet(() -> new ExpectedPayment(
-                transactionId,
-                text(node, "merchant_id"),
-                0,
-                "USD",
-                "COMPLETED",
-                Instant.now()));
+        ExpectedPayment payment = expectedPayments.findByTransactionId(transactionId).orElse(null);
+
+        if (payment == null) {
+            log.warn(
+                    "payment.completed for {} arrived before payment.created — creating provisional ledger entry",
+                    transactionId);
+            payment = new ExpectedPayment(
+                    transactionId,
+                    text(node, "merchant_id"),
+                    amountMinor(node),
+                    currency(node),
+                    "AWAITING_CREATE",
+                    Instant.now());
+        }
+
         payment.complete(text(node, "stripe_charge_id"));
         expectedPayments.save(payment);
+    }
+
+    /**
+     * {@code payment.completed} carries no amount, so an out-of-order arrival has none to record.
+     * A negative sentinel makes the gap explicit instead of asserting the payment was for zero.
+     */
+    private long amountMinor(JsonNode node) {
+        JsonNode value = node.get("amount_minor");
+        return value == null || value.isNull() ? -1L : value.asLong();
+    }
+
+    private String currency(JsonNode node) {
+        String value = text(node, "currency");
+        return value == null ? "XXX" : value;
     }
 
     private void markFailed(JsonNode node) {
